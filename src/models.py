@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
+
 from src.exceptions import DatasetValidationError
 
 
@@ -94,9 +96,7 @@ class StructureComparison:
     @property
     def same_schema(self) -> bool:
         """Check whether column names and types match, regardless of order."""
-        return not (
-            self.missing_columns or self.extra_columns or self.type_differences
-        )
+        return not (self.missing_columns or self.extra_columns or self.type_differences)
 
     @property
     def same_dimensions(self) -> bool:
@@ -104,4 +104,57 @@ class StructureComparison:
         return (
             self.source.row_count == self.target.row_count
             and self.source.column_count == self.target.column_count
+        )
+
+@dataclass(frozen=True)
+class UnkeyedComparison:
+    """Describe a comparison of complete rows, including duplicate counts."""
+
+    structure: StructureComparison
+    status: Literal["complete", "not_compared"]
+    matched_rows: int | None = None
+    missing_rows: int | None = None
+    added_rows: int | None = None
+    reason: str | None = None
+    missing_rows_file: Path | None = None
+    added_rows_file: Path | None = None
+
+    @property
+    def identical(self) -> bool:
+        """Return true only when a complete comparison finds no difference."""
+        return (
+            self.status == "complete"
+            and self.structure.same_schema
+            and self.missing_rows == 0
+            and self.added_rows == 0
+        )
+
+
+@dataclass(frozen=True)
+class KeyedComparison:
+    """Describe record differences using a unique identifier."""
+
+    structure: StructureComparison
+    key: str
+    status: Literal["complete", "partial", "not_compared"]
+    compared_columns: tuple[str, ...]
+    matched_rows: int | None = None
+    missing_rows: int | None = None
+    added_rows: int | None = None
+    modified_rows: int | None = None
+    modified_cells: int | None = None
+    reason: str | None = None
+    missing_rows_file: Path | None = None
+    added_rows_file: Path | None = None
+    modified_cells_file: Path | None = None
+
+    @property
+    def identical(self) -> bool:
+        """Return true only for a complete comparison without differences."""
+        return (
+            self.status == "complete"
+            and self.structure.same_schema
+            and self.missing_rows == 0
+            and self.added_rows == 0
+            and self.modified_cells == 0
         )

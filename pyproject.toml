@@ -3,7 +3,7 @@ name = "dbtwin"
 version = "0.1.0"
 description = "Compare datasets across files and databases."
 requires-python = ">=3.11,<3.14"
-dependencies = []
+dependencies = ["pyarrow (>=25)", "pandas (>=3.1.1,<4.0.0)", "duckdb (>=2.0.0,<3.0.0)"]
 
 [tool.poetry]
 packages = [{ include = "src" }]
