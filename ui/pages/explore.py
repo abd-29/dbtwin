@@ -2,7 +2,7 @@ import duckdb
 import streamlit as st
 
 from src.exceptions import DbtwinError
-from ui.components import PREVIEW_ROWS, csv_preview, parquet_preview
+from ui.components import PREVIEW_ROWS, file_preview, parquet_preview
 
 
 def explore_page() -> None:
@@ -54,7 +54,7 @@ def explore_page() -> None:
                 st.info("This dataset contains no records.")
                 st.write("Columns:", list(dataset.column_names))
         else:
-            preview, settings = csv_preview(request)
+            preview, settings = file_preview(request)
             st.metric("Columns", preview.num_columns)
             st.dataframe(
                 preview,
@@ -64,15 +64,17 @@ def explore_page() -> None:
             st.caption("Total row count is available after comparison.")
 
         st.caption(f"First {PREVIEW_ROWS} rows at most.")
-        with st.expander("Reading settings"):
-            st.write("Encoding:", settings.encoding)
-            separator = {
-                ",": "Comma",
-                ";": "Semicolon",
-                "\t": "Tab",
-                "|": "Pipe",
-            }.get(settings.delimiter, repr(settings.delimiter))
-            st.write("Separator:", separator)
+        with st.expander("File details"):
+            st.write("Format:", settings.file_format.upper())
+            if settings.file_format == "csv":
+                st.write("Encoding:", settings.encoding)
+                separator = {
+                    ",": "Comma",
+                    ";": "Semicolon",
+                    "\t": "Tab",
+                    "|": "Pipe",
+                }.get(settings.delimiter or "", repr(settings.delimiter))
+                st.write("Separator:", separator)
 
     except (DbtwinError, duckdb.Error, OSError) as error:
         st.error(str(error))

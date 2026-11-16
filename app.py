@@ -14,6 +14,7 @@ class PageDefinition(TypedDict):
     label: str
     render: Callable[[], None]
 
+
 PAGES: dict[str, PageDefinition] = {
     "Load data": {"label": "📂  Load data", "render": load_page},
     "Explore data": {"label": "🔎  Explore data", "render": explore_page},

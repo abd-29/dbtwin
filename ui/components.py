@@ -2,7 +2,7 @@ from collections.abc import Mapping
 from contextlib import closing
 from pathlib import Path
 from shutil import copyfileobj
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 import duckdb
@@ -11,8 +11,10 @@ import streamlit as st
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 from config import FILETYPE, INGESTION_MODES
-from src.ingestion.csv_reader import CsvReader, CsvSettings
-from src.services.comparison_service import CsvInput
+from src.exceptions import IngestionError
+from src.ingestion.csv_reader import CsvReader
+from src.ingestion.parquet_reader import ParquetReader
+from src.services.comparison_service import FileInput, FileSettings
 
 PREVIEW_ROWS = 100
 
@@ -45,8 +47,16 @@ def reading_options(prefix: str) -> tuple[str | None, str | None]:
 
 def ingestion_controls(
     prefix: str, multiple: bool
-) -> tuple[list[UploadedFile], str | None, str | None] | None:
-    """Return uploaded files as a list, including for a single source."""
+) -> (
+    tuple[
+        list[UploadedFile],
+        str | None,
+        str | None,
+        Literal["csv", "parquet"],
+    ]
+    | None
+):
+    """Collect file uploads and format-specific reading options."""
     mode = st.selectbox(
         "Connection",
         options=list(INGESTION_MODES),
@@ -66,8 +76,7 @@ def ingestion_controls(
         "File format",
         options=list(FILETYPE),
         format_func=lambda value: (
-            FILETYPE[value]["label"]
-            + ("" if FILETYPE[value]["enabled"] else " · Coming soon")
+            FILETYPE[value]["label"] + ("" if FILETYPE[value]["enabled"] else " · Coming soon")
         ),
         key=f"{prefix}_format",
     )
@@ -76,16 +85,16 @@ def ingestion_controls(
     if not FILETYPE[filetype]["enabled"]:
         st.info(f"{FILETYPE[filetype]['label']} is not available yet.")
         return None
-
-    if mode != "file" or filetype != "csv":
+    if mode != "file" or filetype not in ("csv", "parquet"):
         st.error("No reader is configured for this selection.")
         return None
 
+    file_format: Literal["csv", "parquet"] = "csv" if filetype == "csv" else "parquet"
     uploads = st.file_uploader(
         "Target files" if multiple else "Source file",
         type=FILETYPE[filetype]["extensions"],
         accept_multiple_files=multiple,
-        key=f"{prefix}_files",
+        key=f"{prefix}_files_{file_format}",
         label_visibility="collapsed",
     )
 
@@ -97,28 +106,47 @@ def ingestion_controls(
     else:
         files = uploads
 
-    encoding, delimiter = reading_options(prefix)
-    return files, encoding, delimiter
+    encoding, delimiter = reading_options(prefix) if file_format == "csv" else (None, None)
+    return files, encoding, delimiter, file_format
 
 
-def save_upload(upload: UploadedFile, directory: Path) -> Path:
-    """Save an uploaded file under a generated filename."""
-    path = directory / f"{uuid4().hex}.csv"
+def save_upload(
+    upload: UploadedFile, directory: Path, file_format: Literal["csv", "parquet"] = "csv"
+) -> Path:
+    """Save an upload using its selected format."""
+    path = directory / f"{uuid4().hex}.{file_format}"
     upload.seek(0)
     with path.open("wb") as destination:
         copyfileobj(upload, destination)
     return path
 
 
-def csv_preview(request: CsvInput) -> tuple[pa.RecordBatch, CsvSettings]:
-    """Read a bounded preview and return effective reading settings."""
-    reader = CsvReader()
-    settings = reader.inspect(
-        request.path,
-        encoding=request.encoding,
-        delimiter=request.delimiter,
-    )
-    with closing(reader.read_batches(request.path, settings)) as batches:
+def file_preview(request: FileInput) -> tuple[pa.RecordBatch, FileSettings]:
+    """Preview CSV or Parquet without loading the complete dataset."""
+    if request.file_format == "csv":
+        reader = CsvReader()
+        detected = reader.inspect(
+            request.path,
+            encoding=request.encoding,
+            delimiter=request.delimiter,
+        )
+        settings = FileSettings(
+            file_format="csv",
+            encoding=detected.encoding,
+            delimiter=detected.delimiter,
+            encoding_detected=detected.encoding_detected,
+            delimiter_detected=detected.delimiter_detected,
+        )
+        batches = reader.read_batches(request.path, detected)
+    elif request.file_format == "parquet":
+        if request.encoding is not None or request.delimiter is not None:
+            raise IngestionError("Encoding and delimiter settings apply only to CSV files.")
+        settings = FileSettings(file_format="parquet")
+        batches = ParquetReader().read_batches(request.path)
+    else:
+        raise IngestionError(f"Unsupported file format: '{request.file_format}'.")
+
+    with closing(batches):
         preview = next(batches).slice(0, PREVIEW_ROWS)
     return preview, settings
 
@@ -138,7 +166,7 @@ def parquet_preview(paths: tuple[Path, ...]) -> list[tuple[Any, ...]]:
 
 def directory_key(inputs: Mapping[str, Any]) -> str:
     """Identify widgets associated with the loaded file selection."""
-    source: CsvInput = inputs["source"]
+    source: FileInput = inputs["source"]
     return source.path.parent.name
 
 

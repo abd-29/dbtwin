@@ -1,37 +1,56 @@
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
 from src.comparison.duckdb_comparator import DuckDBComparator
-from src.exceptions import DatasetValidationError, DbtwinError
-from src.ingestion.csv_reader import CsvReader, CsvSettings
+from src.exceptions import DatasetValidationError, DbtwinError, IngestionError
+from src.ingestion.csv_reader import CsvReader
+from src.ingestion.parquet_reader import ParquetReader
 from src.models import Dataset, DatasetOrigin, KeyedComparison, UnkeyedComparison
 from src.transformation.normalizer import ParquetNormalizer
 
 
 @dataclass(frozen=True)
-class CsvInput:
-    """Describe a CSV input and optional reading overrides."""
+class FileInput:
+    """Describe a file input and its reading options."""
 
     path: Path
     encoding: str | None = None
     delimiter: str | None = None
+    file_format: Literal["csv", "parquet"] = "csv"
 
 
 @dataclass(frozen=True)
-class PreparedCsv:
-    """Keep the prepared dataset and its effective reading settings."""
+class FileSettings:
+    """Describe the effective settings used during ingestion."""
+
+    file_format: Literal["csv", "parquet"]
+    encoding: str | None = None
+    delimiter: str | None = None
+    encoding_detected: bool = False
+    delimiter_detected: bool = False
+
+
+@dataclass(frozen=True)
+class PreparedFile:
+    """Keep a prepared dataset and its effective ingestion settings."""
 
     dataset: Dataset
-    settings: CsvSettings
+    settings: FileSettings
+
+
+# Preserve compatibility with existing CSV callers.
+CsvInput = FileInput
+PreparedCsv = PreparedFile
 
 
 @dataclass(frozen=True)
 class TargetOutcome:
     """Describe either a target comparison or an operational failure."""
 
-    prepared: PreparedCsv | None = None
+    prepared: PreparedFile | None = None
     comparison: KeyedComparison | UnkeyedComparison | None = None
     error: str | None = None
 
@@ -42,25 +61,23 @@ class ComparisonJob:
 
     job_id: str
     workspace: Path
-    source: PreparedCsv
+    source: PreparedFile
     key: str | None
     targets: dict[str, TargetOutcome]
 
 
 class ComparisonService:
-    """Orchestrate CSV preparation and independent target comparisons."""
+    """Orchestrate file ingestion and independent target comparisons."""
 
-    def __init__(self, jobs_dir: Path):
+    def __init__(self, jobs_dir: Path) -> None:
         self.jobs_dir = jobs_dir.resolve()
         self.reader = CsvReader()
+        self.parquet_reader = ParquetReader()
         self.normalizer = ParquetNormalizer()
         self.comparator = DuckDBComparator()
 
     def run(
-        self,
-        source: CsvInput,
-        targets: dict[str, CsvInput],
-        key: str | None = None,
+        self, source: FileInput, targets: dict[str, FileInput], key: str | None = None
     ) -> ComparisonJob:
         """Prepare a source and compare each target independently."""
         if not targets:
@@ -84,18 +101,19 @@ class ComparisonService:
             if key is not None:
                 self.comparator.validate_key(prepared_source.dataset, key)
         except Exception:
-            # This workspace belongs exclusively to the failed job.
+            # Remove only the workspace belonging to this failed job.
             shutil.rmtree(workspace)
             raise
 
         comparison: KeyedComparison | UnkeyedComparison
+        outcomes: dict[str, TargetOutcome] = {}
 
-        outcomes = {}
         for name, request in targets.items():
-            prepared_target = None
+            prepared_target: PreparedFile | None = None
             try:
                 prepared_target = self._prepare(request, name, workspace / "normalized")
                 output_dir = workspace / "differences"
+
                 if key is None:
                     comparison = self.comparator.compare_without_key(
                         prepared_source.dataset,
@@ -109,12 +127,13 @@ class ComparisonService:
                         key=key,
                         output_dir=output_dir,
                     )
+
+                outcomes[name] = TargetOutcome(prepared=prepared_target, comparison=comparison)
+            except DbtwinError as error:
                 outcomes[name] = TargetOutcome(
                     prepared=prepared_target,
-                    comparison=comparison,
+                    error=str(error),
                 )
-            except DbtwinError as error:
-                outcomes[name] = TargetOutcome(prepared=prepared_target, error=str(error))
 
         return ComparisonJob(
             job_id=job_id,
@@ -124,21 +143,40 @@ class ComparisonService:
             targets=outcomes,
         )
 
-    def _prepare(self, request: CsvInput, name: str, output_dir: Path) -> PreparedCsv:
-        """Inspect a CSV and prepare its internal representation."""
-        settings = self.reader.inspect(
-            request.path,
-            encoding=request.encoding,
-            delimiter=request.delimiter,
-        )
+    def _prepare(self, request: FileInput, name: str, output_dir: Path) -> PreparedFile:
+        """Select a reader and prepare the shared internal representation."""
+        if request.file_format == "csv":
+            csv_settings = self.reader.inspect(
+                request.path,
+                encoding=request.encoding,
+                delimiter=request.delimiter,
+            )
+            settings = FileSettings(
+                file_format="csv",
+                encoding=csv_settings.encoding,
+                delimiter=csv_settings.delimiter,
+                encoding_detected=csv_settings.encoding_detected,
+                delimiter_detected=csv_settings.delimiter_detected,
+            )
+            batches = self.reader.read_batches(request.path, csv_settings)
+
+        elif request.file_format == "parquet":
+            if request.encoding is not None or request.delimiter is not None:
+                raise IngestionError("Encoding and delimiter settings apply only to CSV files.")
+            settings = FileSettings(file_format="parquet")
+            batches = self.parquet_reader.read_batches(request.path)
+
+        else:
+            raise IngestionError(f"Unsupported file format: '{request.file_format}'.")
+
         dataset = self.normalizer.normalize(
-            batches=self.reader.read_batches(request.path, settings),
+            batches=batches,
             output_dir=output_dir,
             name=name,
             origin=DatasetOrigin(
                 ingestion_mode="file",
                 location=str(request.path.resolve()),
-                file_format="csv",
+                file_format=request.file_format,
             ),
         )
-        return PreparedCsv(dataset=dataset, settings=settings)
+        return PreparedFile(dataset=dataset, settings=settings)

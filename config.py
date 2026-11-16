@@ -40,5 +40,5 @@ INGESTION_MODES: dict[str, IngestionModeConfig] = {
 FILETYPE: dict[str, FileTypeConfig] = {
     "csv": {"label": "CSV", "extensions": ["csv"], "enabled": True},
     "excel": {"label": "Excel", "extensions": ["xlsx"], "enabled": False},
-    "parquet": {"label": "Parquet", "extensions": ["parquet"], "enabled": False},
+    "parquet": {"label": "Parquet", "extensions": ["parquet"], "enabled": True},
 }

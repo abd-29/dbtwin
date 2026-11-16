@@ -5,12 +5,12 @@ import streamlit as st
 
 from config import JOBS_DIR, WORKSPACE_DIR
 from src.exceptions import DbtwinError
-from src.services.comparison_service import ComparisonService, CsvInput
+from src.services.comparison_service import ComparisonService, FileInput
 from ui.components import (
     ENCODINGS,
     SEPARATORS,
-    csv_preview,
     directory_key,
+    file_preview,
     ingestion_controls,
     save_upload,
 )
@@ -39,8 +39,8 @@ def load_page() -> None:
     )
 
     if load_clicked and source_settings is not None and target_settings is not None:
-        source_uploads, source_encoding, source_separator = source_settings
-        target_uploads, target_encoding, target_separator = target_settings
+        source_uploads, source_encoding, source_separator, source_format = source_settings
+        target_uploads, target_encoding, target_separator, target_format = target_settings
 
         if not source_uploads or not target_uploads:
             st.warning("Select one source and at least one target.")
@@ -49,25 +49,28 @@ def load_page() -> None:
             directory = WORKSPACE_DIR / "uploads" / st.session_state["session_id"] / uuid4().hex
             try:
                 directory.mkdir(parents=True, exist_ok=False)
-                source = CsvInput(
-                    path=save_upload(source_upload, directory),
+                source = FileInput(
+                    path=save_upload(source_upload, directory, source_format),
                     encoding=source_encoding,
                     delimiter=source_separator,
+                    file_format=source_format,
                 )
-                preview, settings = csv_preview(source)
-                source = CsvInput(
+                preview, settings = file_preview(source)
+                source = FileInput(
                     path=source.path,
                     encoding=settings.encoding,
                     delimiter=settings.delimiter,
+                    file_format=settings.file_format,
                 )
 
                 targets = {}
                 for index, upload in enumerate(target_uploads, start=1):
                     name = f"{index}. {upload.name}"
-                    targets[name] = CsvInput(
-                        path=save_upload(upload, directory),
+                    targets[name] = FileInput(
+                        path=save_upload(upload, directory, target_format),
                         encoding=target_encoding,
                         delimiter=target_separator,
+                        file_format=target_format,
                     )
             except (DbtwinError, OSError) as error:
                 if directory.exists():
@@ -103,7 +106,11 @@ def load_page() -> None:
                 (name for name, value in SEPARATORS.items() if value == settings.delimiter),
                 repr(settings.delimiter),
             )
-            st.caption(f"{settings.encoding} · {separator_name}")
+            st.caption(
+                f"{settings.encoding} · {separator_name}"
+                if settings.file_format == "csv"
+                else "Parquet"
+            )
 
         with right:
             st.markdown("**Loaded targets**")
@@ -116,6 +123,12 @@ def load_page() -> None:
     with st.expander("Target reading settings"):
         for index, (name, request) in enumerate(inputs["targets"].items()):
             st.markdown(f"**{name}**")
+
+            if request.file_format == "parquet":
+                st.caption("Parquet · No reading settings required.")
+                overrides[name] = request
+                continue
+
             left, right = st.columns(2)
             token = f"{directory_key(inputs)}_{index}"
 
@@ -135,10 +148,11 @@ def load_page() -> None:
                     key=f"loaded_encoding_{token}",
                 )
 
-            overrides[name] = CsvInput(
+            overrides[name] = FileInput(
                 path=request.path,
                 encoding=ENCODINGS[encoding],
                 delimiter=SEPARATORS[separator],
+                file_format=request.file_format,
             )
 
     left, right = st.columns([3, 1], vertical_alignment="bottom")
