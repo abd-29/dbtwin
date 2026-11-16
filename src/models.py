@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from pathlib import Path
-from exceptions import DatasetValidationError
+from src.exceptions import DatasetValidationError
 
 
 @dataclass(frozen=True)
@@ -61,3 +61,47 @@ class Dataset:
     def column_count(self) -> int:
         """Return the number of columns."""
         return len(self.columns)
+
+@dataclass(frozen=True)
+class DatasetSummary:
+    """Describe the dimensions of a dataset."""
+
+    name: str
+    row_count: int
+    column_count: int
+
+
+@dataclass(frozen=True)
+class ColumnTypeDifference:
+    """Describe a type difference between matching columns."""
+
+    name: str
+    source_type: str
+    target_type: str
+
+
+@dataclass(frozen=True)
+class StructureComparison:
+    """Describe structural differences without comparing record values."""
+
+    source: DatasetSummary
+    target: DatasetSummary
+    common_columns: tuple[str, ...]
+    missing_columns: tuple[str, ...]
+    extra_columns: tuple[str, ...]
+    type_differences: tuple[ColumnTypeDifference, ...]
+
+    @property
+    def same_schema(self) -> bool:
+        """Check whether column names and types match, regardless of order."""
+        return not (
+            self.missing_columns or self.extra_columns or self.type_differences
+        )
+
+    @property
+    def same_dimensions(self) -> bool:
+        """Check whether row and column counts match."""
+        return (
+            self.source.row_count == self.target.row_count
+            and self.source.column_count == self.target.column_count
+        )

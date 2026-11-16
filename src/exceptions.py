@@ -16,3 +16,6 @@ class DatasetValidationError(DbtwinError):
 
 class ComparisonError(DbtwinError):
     """Raised when a comparison cannot be performed."""
+
+class TransformationError(DbtwinError):
+    """Raised when preparing the internal dataset fails."""
