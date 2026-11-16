@@ -1,9 +1,13 @@
 import codecs
 import csv
+from collections.abc import Iterator
 from dataclasses import dataclass
-from pathlib import Path
 
-from src.exceptions import FormatDetectionError, IngestionError
+from pathlib import Path
+import pyarrow as pa
+import pyarrow.csv as arrow_csv
+
+from src.exceptions import FormatDetectionError, IngestionError, DatasetValidationError
 
 
 @dataclass(frozen=True)
@@ -22,16 +26,9 @@ class CsvReader:
     SUPPORTED_DELIMITERS = (",", ";", "\t", "|")
     SAMPLE_SIZE = 64 * 1024
 
-    def inspect(
-        self,
-        path: Path,
-        encoding: str | None = None,
-        delimiter: str | None = None,
-    ) -> CsvSettings:
+    def inspect(self, path: Path, encoding: str | None = None, delimiter: str | None = None) -> CsvSettings:
         """Inspect a local CSV, optionally using explicit settings."""
-        if delimiter is not None and (
-            len(delimiter) != 1 or delimiter in ("\r", "\n", '"', "\0")
-        ):
+        if delimiter is not None and (len(delimiter) != 1 or delimiter in ("\r", "\n", '"', "\0")):
             raise IngestionError("The delimiter must be one valid character.")
 
         sample = self._read_sample(path)
@@ -47,6 +44,56 @@ class CsvReader:
             encoding_detected=encoding is None,
             delimiter_detected=delimiter is None,
         )
+
+    def read_batches(self, path: Path, settings: CsvSettings, block_size: int = 1024 * 1024) -> Iterator[pa.RecordBatch]:
+        """Read CSV records incrementally, preserving all values as text."""
+        if block_size <= 0:
+            raise IngestionError("Block size must be greater than zero.")
+
+        read_options = arrow_csv.ReadOptions(
+            encoding=settings.encoding,
+            block_size=block_size,
+        )
+        parse_options = arrow_csv.ParseOptions(
+            delimiter=settings.delimiter,
+            newlines_in_values=True,
+            ignore_empty_lines=False,
+        )
+        convert_options = arrow_csv.ConvertOptions(
+            default_column_type=pa.string(),
+            strings_can_be_null=False,
+            null_values=[],
+        )
+
+        try:
+            with arrow_csv.open_csv(
+                str(path),
+                read_options=read_options,
+                parse_options=parse_options,
+                convert_options=convert_options,
+            ) as reader:
+                names = reader.schema.names
+                if any(not name.strip() for name in names):
+                    raise DatasetValidationError("Column names must not be empty.")
+                if len(names) != len(set(names)):
+                    raise DatasetValidationError("Column names must be unique.")
+
+                has_batches = False
+                for batch in reader:
+                    has_batches = True
+                    yield batch
+
+                # Preserve the schema of a CSV containing only its header.
+                if not has_batches:
+                    yield pa.RecordBatch.from_arrays(
+                        [pa.array([], type=field.type) for field in reader.schema],
+                        schema=reader.schema,
+                    )
+        except (pa.ArrowInvalid, pa.ArrowNotImplementedError, OSError, UnicodeError) as error:
+            raise IngestionError(
+                f"Unable to read '{path.name}' completely. "
+                "Check its encoding, structure and block size."
+            ) from error
 
     def _read_sample(self, path: Path) -> bytes:
         """Read a bounded sample without loading the entire file."""
@@ -76,14 +123,10 @@ class CsvReader:
         try:
             self._decode_sample(sample, "utf-8")
         except IngestionError as error:
-            raise FormatDetectionError(
-                "Unable to identify the encoding. Select it manually."
-            ) from error
+            raise FormatDetectionError("Unable to identify the encoding. Select it manually.") from error
 
         if b"\0" in sample:
-            raise FormatDetectionError(
-                "Unexpected null bytes. Select the encoding manually."
-            )
+            raise FormatDetectionError("Unexpected null bytes. Select the encoding manually.")
         return "utf-8"
 
     @staticmethod
@@ -93,18 +136,12 @@ class CsvReader:
             decoder = codecs.getincrementaldecoder(encoding)(errors="strict")
             return decoder.decode(sample, final=False)
         except (LookupError, UnicodeError) as error:
-            raise IngestionError(
-                f"Unable to decode the CSV sample using '{encoding}'."
-            ) from error
+            raise IngestionError(f"Unable to decode the CSV sample using '{encoding}'.") from error
 
     def _detect_delimiter(self, text: str) -> str:
         """Suggest a separator using Python's CSV dialect detector."""
         try:
-            dialect = csv.Sniffer().sniff(
-                text, delimiters="".join(self.SUPPORTED_DELIMITERS)
-            )
+            dialect = csv.Sniffer().sniff(text, delimiters="".join(self.SUPPORTED_DELIMITERS))
         except csv.Error as error:
-            raise FormatDetectionError(
-                "Unable to identify the delimiter. Select it manually."
-            ) from error
+            raise FormatDetectionError("Unable to identify the delimiter. Select it manually.") from error
         return dialect.delimiter
