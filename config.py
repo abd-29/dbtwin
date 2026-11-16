@@ -21,11 +21,13 @@ JOBS_DIR = WORKSPACE_DIR / "jobs"
 
 INGESTION_MODES = {
     "file": {"label": "File upload", "enabled": True},
-    "database": {"label": "Database connection", "enabled": False},
+    "postgresql": {"label": "PostgreSQL", "enabled": False},
+    "mysql": {"label": "MySQL", "enabled": False},
+    "sqlserver": {"label": "SQL Server", "enabled": False},
 }
 
 FILETYPE = {
-    "csv": {"label": "CSV", "extensions": ["csv"]},
-    "excel": {"label": "Excel", "extensions": ["xlsx"]},
-    "parquet": {"label": "Parquet", "extensions": ["parquet"]},
+    "csv": {"label": "CSV", "extensions": ["csv"], "enabled": True},
+    "excel": {"label": "Excel", "extensions": ["xlsx"], "enabled": False},
+    "parquet": {"label": "Parquet", "extensions": ["parquet"], "enabled": False},
 }
