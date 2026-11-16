@@ -27,11 +27,7 @@ def results_page() -> None:
 
     structure = result.structure
     keyed = isinstance(result, KeyedComparison)
-    st.caption(
-        f"Record identifier: {result.key}"
-        if keyed
-        else "Complete-row comparison · No key"
-    )
+    st.caption(f"Record identifier: {result.key}" if keyed else "Complete-row comparison · No key")
 
     st.dataframe(
         [

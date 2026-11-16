@@ -87,7 +87,7 @@ def render_brand() -> None:
         '<div class="brand">'
         f'<img src="data:image/svg+xml;base64,{encoded}" '
         'width="38" height="38" alt="">'
-        '<span>dbtwin</span>'
-        '</div>',
+        "<span>dbtwin</span>"
+        "</div>",
         unsafe_allow_html=True,
     )

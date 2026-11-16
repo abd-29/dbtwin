@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from src.exceptions import FormatDetectionError, IngestionError, DatasetValidationError
+from src.exceptions import DatasetValidationError, FormatDetectionError, IngestionError
 from src.ingestion.csv_reader import CsvReader
 
 
@@ -128,11 +128,7 @@ def test_preserves_text_values(tmp_path: Path) -> None:
     reader = CsvReader()
     settings = reader.inspect(path)
 
-    rows = [
-        row
-        for batch in reader.read_batches(path, settings)
-        for row in batch.to_pylist()
-    ]
+    rows = [row for batch in reader.read_batches(path, settings) for row in batch.to_pylist()]
 
     assert rows == [
         {"id": "00123", "value": "10.00"},
@@ -147,11 +143,7 @@ def test_preserves_empty_fields_and_spaces(tmp_path: Path) -> None:
     reader = CsvReader()
     settings = reader.inspect(path)
 
-    rows = [
-        row
-        for batch in reader.read_batches(path, settings)
-        for row in batch.to_pylist()
-    ]
+    rows = [row for batch in reader.read_batches(path, settings) for row in batch.to_pylist()]
 
     assert rows == [
         {"id": "001", "value": ""},
@@ -169,26 +161,15 @@ def test_reads_quoted_multiline_values(tmp_path: Path) -> None:
     reader = CsvReader()
     settings = reader.inspect(path, delimiter=";")
 
-    rows = [
-        row
-        for batch in reader.read_batches(path, settings)
-        for row in batch.to_pylist()
-    ]
+    rows = [row for batch in reader.read_batches(path, settings) for row in batch.to_pylist()]
 
-    assert rows == [
-        {"id": "001", "description": "Hello; world\nSecond line"}
-    ]
+    assert rows == [{"id": "001", "description": "Hello; world\nSecond line"}]
 
 
 def test_reads_multiple_batches_without_losing_records(tmp_path: Path) -> None:
     path = tmp_path / "input.csv"
-    expected = [
-        {"id": f"{index:05d}", "name": f"Customer {index}"}
-        for index in range(100)
-    ]
-    content = "id,name\n" + "".join(
-        f"{row['id']},{row['name']}\n" for row in expected
-    )
+    expected = [{"id": f"{index:05d}", "name": f"Customer {index}"} for index in range(100)]
+    content = "id,name\n" + "".join(f"{row['id']},{row['name']}\n" for row in expected)
     path.write_text(content, encoding="utf-8")
     reader = CsvReader()
     settings = reader.inspect(path)
@@ -253,10 +234,6 @@ def test_reads_explicit_encodings(tmp_path: Path, encoding: str) -> None:
     reader = CsvReader()
     settings = reader.inspect(path, encoding=encoding, delimiter=";")
 
-    rows = [
-        row
-        for batch in reader.read_batches(path, settings)
-        for row in batch.to_pylist()
-    ]
+    rows = [row for batch in reader.read_batches(path, settings) for row in batch.to_pylist()]
 
     assert rows == [{"id": "001", "name": "Élodie"}]

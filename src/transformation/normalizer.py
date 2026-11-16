@@ -75,20 +75,14 @@ class ParquetNormalizer:
                     ),
                     row_count=row_count,
                 )
-                metadata = json.dumps(
-                    asdict(dataset), default=str, ensure_ascii=False, indent=2
-                )
-                (staging_dir / "metadata.json").write_text(
-                    metadata + "\n", encoding="utf-8"
-                )
+                metadata = json.dumps(asdict(dataset), default=str, ensure_ascii=False, indent=2)
+                (staging_dir / "metadata.json").write_text(metadata + "\n", encoding="utf-8")
 
                 # Publish only after the writer and metadata file are closed.
                 staging_dir.rename(final_dir)
                 return dataset
         except (OSError, pa.ArrowException) as error:
-            raise TransformationError(
-                f"Unable to prepare dataset '{name}'."
-            ) from error
+            raise TransformationError(f"Unable to prepare dataset '{name}'.") from error
 
     @staticmethod
     def _validate_schema(schema: pa.Schema) -> None:

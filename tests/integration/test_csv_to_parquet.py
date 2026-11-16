@@ -12,8 +12,8 @@ from src.transformation.normalizer import ParquetNormalizer
 def test_csv_to_parquet_preserves_records(tmp_path: Path) -> None:
     source = tmp_path / "source.csv"
     source.write_text(
-        'id;name;value\n'
-        '001;Élodie;\n'
+        "id;name;value\n"
+        "001;Élodie;\n"
         '002;"Alice; Bob";NA\n'
         '002;"Alice; Bob";NA\n'
         '003;"First line\nSecond line";" Rennes "\n',

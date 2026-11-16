@@ -19,15 +19,10 @@ def explore_page() -> None:
         "Dataset",
         options,
         format_func=lambda value: (
-            f"Source · {inputs['source_name']}"
-            if value == "source"
-            else f"Target · {value}"
+            f"Source · {inputs['source_name']}" if value == "source" else f"Target · {value}"
         ),
     )
-    request = (
-        inputs["source"] if selected == "source"
-        else inputs["targets"][selected]
-    )
+    request = inputs["source"] if selected == "source" else inputs["targets"][selected]
 
     job = st.session_state.get("job")
     prepared = None
@@ -51,10 +46,7 @@ def explore_page() -> None:
             rows = parquet_preview(dataset.parquet_files)
             if rows:
                 st.dataframe(
-                    [
-                        dict(zip(dataset.column_names, row, strict=True))
-                        for row in rows
-                    ],
+                    [dict(zip(dataset.column_names, row, strict=True)) for row in rows],
                     hide_index=True,
                     use_container_width=True,
                 )

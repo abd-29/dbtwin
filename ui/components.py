@@ -38,41 +38,41 @@ ENCODINGS = {
 def reading_options(prefix: str) -> tuple[str | None, str | None]:
     """Collect optional CSV reading overrides."""
     with st.expander("Reading settings"):
-        separator = st.selectbox(
-            "Separator", list(SEPARATORS), key=f"{prefix}_separator"
-        )
-        encoding = st.selectbox(
-            "Encoding", list(ENCODINGS), key=f"{prefix}_encoding"
-        )
+        separator = st.selectbox("Separator", list(SEPARATORS), key=f"{prefix}_separator")
+        encoding = st.selectbox("Encoding", list(ENCODINGS), key=f"{prefix}_encoding")
     return ENCODINGS[encoding], SEPARATORS[separator]
 
 
 def ingestion_controls(
     prefix: str, multiple: bool
-) -> tuple[UploadedFile | list[UploadedFile] | None, str | None, str | None] | None:
-    """Display available and planned ingestion options."""
+) -> tuple[list[UploadedFile], str | None, str | None] | None:
+    """Return uploaded files as a list, including for a single source."""
     mode = st.selectbox(
         "Connection",
-        list(INGESTION_MODES),
+        options=list(INGESTION_MODES),
         format_func=lambda value: (
             INGESTION_MODES[value]["label"]
             + ("" if INGESTION_MODES[value]["enabled"] else " · Coming soon")
         ),
         key=f"{prefix}_connection",
     )
+    if mode is None:
+        return None
     if not INGESTION_MODES[mode]["enabled"]:
         st.info(f"{INGESTION_MODES[mode]['label']} is not available yet.")
         return None
 
     filetype = st.selectbox(
         "File format",
-        list(FILETYPE),
+        options=list(FILETYPE),
         format_func=lambda value: (
             FILETYPE[value]["label"]
             + ("" if FILETYPE[value]["enabled"] else " · Coming soon")
         ),
         key=f"{prefix}_format",
     )
+    if filetype is None:
+        return None
     if not FILETYPE[filetype]["enabled"]:
         st.info(f"{FILETYPE[filetype]['label']} is not available yet.")
         return None
@@ -88,8 +88,17 @@ def ingestion_controls(
         key=f"{prefix}_files",
         label_visibility="collapsed",
     )
+
+    files: list[UploadedFile]
+    if uploads is None:
+        files = []
+    elif isinstance(uploads, UploadedFile):
+        files = [uploads]
+    else:
+        files = uploads
+
     encoding, delimiter = reading_options(prefix)
-    return uploads, encoding, delimiter
+    return files, encoding, delimiter
 
 
 def save_upload(upload: UploadedFile, directory: Path) -> Path:
@@ -117,10 +126,14 @@ def csv_preview(request: CsvInput) -> tuple[pa.RecordBatch, CsvSettings]:
 def parquet_preview(paths: tuple[Path, ...]) -> list[tuple[Any, ...]]:
     """Fetch only the records needed for a preview."""
     with duckdb.connect(database=":memory:") as connection:
-        return connection.read_parquet(
-            [str(path) for path in paths],
-            hive_partitioning=False,
-        ).limit(PREVIEW_ROWS).fetchall()
+        return (
+            connection.read_parquet(
+                [str(path) for path in paths],
+                hive_partitioning=False,
+            )
+            .limit(PREVIEW_ROWS)
+            .fetchall()
+        )
 
 
 def directory_key(inputs: Mapping[str, Any]) -> str:
@@ -136,18 +149,13 @@ def difference_table(path: Path | None, widget_key: str) -> None:
         return
 
     with duckdb.connect(database=":memory:") as connection:
-        relation = connection.read_parquet(
-            str(path), hive_partitioning=False
-        )
+        relation = connection.read_parquet(str(path), hive_partitioning=False)
         rows = relation.limit(PREVIEW_ROWS).fetchall()
         names = relation.columns
 
         if rows:
             st.dataframe(
-                [
-                    dict(zip(names, row, strict=True))
-                    for row in rows
-                ],
+                [dict(zip(names, row, strict=True)) for row in rows],
                 hide_index=True,
                 use_container_width=True,
             )

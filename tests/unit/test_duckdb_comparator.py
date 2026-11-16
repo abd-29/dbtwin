@@ -1,5 +1,5 @@
-from dataclasses import replace
 from collections import Counter
+from dataclasses import replace
 from pathlib import Path
 
 import pyarrow as pa
@@ -222,17 +222,11 @@ def test_unkeyed_comparison_handles_empty_datasets(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("empty_source", [True, False])
-def test_unkeyed_comparison_handles_one_empty_dataset(
-    tmp_path: Path, empty_source: bool
-) -> None:
+def test_unkeyed_comparison_handles_one_empty_dataset(tmp_path: Path, empty_source: bool) -> None:
     empty = pa.record_batch({"id": pa.array([], type=pa.string())})
     populated = pa.record_batch({"id": ["001", "002"]})
-    source = prepare_dataset(
-        empty if empty_source else populated, tmp_path, "source"
-    )
-    target = prepare_dataset(
-        populated if empty_source else empty, tmp_path, "target"
-    )
+    source = prepare_dataset(empty if empty_source else populated, tmp_path, "source")
+    target = prepare_dataset(populated if empty_source else empty, tmp_path, "target")
 
     result = DuckDBComparator().compare_without_key(source, target)
 
@@ -253,9 +247,7 @@ def test_unkeyed_comparison_handles_one_empty_dataset(
 def test_unkeyed_comparison_reports_incompatible_schemas(
     tmp_path: Path, target_batch: pa.RecordBatch
 ) -> None:
-    source = prepare_dataset(
-        pa.record_batch({"id": ["001"]}), tmp_path, "source"
-    )
+    source = prepare_dataset(pa.record_batch({"id": ["001"]}), tmp_path, "source")
     target = prepare_dataset(target_batch, tmp_path, "target")
 
     result = DuckDBComparator().compare_without_key(source, target)
@@ -290,11 +282,13 @@ def test_unkeyed_comparison_distinguishes_null_empty_and_literal_na(
 
 
 def test_unkeyed_comparison_handles_special_column_names(tmp_path: Path) -> None:
-    batch = pa.record_batch({
-        "customer name": ["Alice"],
-        'a"b': ["001"],
-        "select": ["active"],
-    })
+    batch = pa.record_batch(
+        {
+            "customer name": ["Alice"],
+            'a"b': ["001"],
+            "select": ["active"],
+        }
+    )
     source = prepare_dataset(batch, tmp_path, "source")
     target = prepare_dataset(batch, tmp_path, "target")
 
@@ -347,9 +341,7 @@ def test_writes_empty_differences_with_schema(tmp_path: Path) -> None:
         table = pq.read_table(path)
         assert table.num_rows == 0
         assert table.schema.names == batch.schema.names
-        assert [field.type for field in table.schema] == [
-            field.type for field in batch.schema
-        ]
+        assert [field.type for field in table.schema] == [field.type for field in batch.schema]
 
 
 def test_does_not_write_files_when_output_is_not_requested(tmp_path: Path) -> None:
@@ -366,17 +358,13 @@ def test_does_not_write_files_when_output_is_not_requested(tmp_path: Path) -> No
 
 
 def test_does_not_write_differences_for_incompatible_schemas(tmp_path: Path) -> None:
-    source = prepare_dataset(
-        pa.record_batch({"id": ["001"]}), tmp_path / "datasets", "source"
-    )
+    source = prepare_dataset(pa.record_batch({"id": ["001"]}), tmp_path / "datasets", "source")
     target = prepare_dataset(
         pa.record_batch({"other_id": ["001"]}), tmp_path / "datasets", "target"
     )
     output_dir = tmp_path / "differences"
 
-    result = DuckDBComparator().compare_without_key(
-        source, target, output_dir=output_dir
-    )
+    result = DuckDBComparator().compare_without_key(source, target, output_dir=output_dir)
 
     assert result.status == "not_compared"
     assert result.missing_rows_file is None
@@ -385,12 +373,8 @@ def test_does_not_write_differences_for_incompatible_schemas(tmp_path: Path) -> 
 
 
 def test_repeated_comparisons_do_not_overwrite_results(tmp_path: Path) -> None:
-    source = prepare_dataset(
-        pa.record_batch({"id": ["001"]}), tmp_path / "datasets", "source"
-    )
-    target = prepare_dataset(
-        pa.record_batch({"id": ["002"]}), tmp_path / "datasets", "target"
-    )
+    source = prepare_dataset(pa.record_batch({"id": ["001"]}), tmp_path / "datasets", "source")
+    target = prepare_dataset(pa.record_batch({"id": ["002"]}), tmp_path / "datasets", "target")
     comparator = DuckDBComparator()
     output_dir = tmp_path / "differences"
 
@@ -405,7 +389,9 @@ def test_repeated_comparisons_do_not_overwrite_results(tmp_path: Path) -> None:
     assert len(list(output_dir.iterdir())) == 2
 
 
-def test_cleans_staging_directory_when_publication_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cleans_staging_directory_when_publication_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     source = prepare_dataset(pa.record_batch({"id": ["001"]}), tmp_path / "datasets", "source")
     target = prepare_dataset(pa.record_batch({"id": ["002"]}), tmp_path / "datasets", "target")
     output_dir = tmp_path / "differences"
@@ -436,9 +422,7 @@ def test_accepts_unique_record_keys(tmp_path: Path) -> None:
 
 
 def test_rejects_missing_key_column(tmp_path: Path) -> None:
-    dataset = prepare_dataset(
-        pa.record_batch({"name": ["Alice"]}), tmp_path, "customers"
-    )
+    dataset = prepare_dataset(pa.record_batch({"name": ["Alice"]}), tmp_path, "customers")
 
     with pytest.raises(ComparisonError, match="Column 'id' is missing"):
         DuckDBComparator().validate_key(dataset, "id")
@@ -446,9 +430,7 @@ def test_rejects_missing_key_column(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("key", ["", "   "])
 def test_rejects_empty_key_name(tmp_path: Path, key: str) -> None:
-    dataset = prepare_dataset(
-        pa.record_batch({"id": ["001"]}), tmp_path, "customers"
-    )
+    dataset = prepare_dataset(pa.record_batch({"id": ["001"]}), tmp_path, "customers")
 
     with pytest.raises(ComparisonError, match="key must not be empty"):
         DuckDBComparator().validate_key(dataset, key)
@@ -473,9 +455,7 @@ def test_counts_all_rows_with_duplicate_keys(tmp_path: Path) -> None:
         "customers",
     )
 
-    with pytest.raises(
-        ComparisonError, match=r"5 row\(s\) with duplicate identifiers"
-    ):
+    with pytest.raises(ComparisonError, match=r"5 row\(s\) with duplicate identifiers"):
         DuckDBComparator().validate_key(dataset, "id")
 
 
@@ -529,20 +509,24 @@ def test_handles_special_key_column_name(tmp_path: Path) -> None:
 
 def test_keyed_comparison_reports_record_changes(tmp_path: Path) -> None:
     source = prepare_dataset(
-        pa.record_batch({
-            "id": ["001", "002"],
-            "name": ["Alice", "Bob"],
-            "city": ["Rennes", "Vannes"],
-        }),
+        pa.record_batch(
+            {
+                "id": ["001", "002"],
+                "name": ["Alice", "Bob"],
+                "city": ["Rennes", "Vannes"],
+            }
+        ),
         tmp_path,
         "source",
     )
     target = prepare_dataset(
-        pa.record_batch({
-            "id": ["001", "003"],
-            "name": ["Alice", "Fatou"],
-            "city": ["Paris", "Nantes"],
-        }),
+        pa.record_batch(
+            {
+                "id": ["001", "003"],
+                "name": ["Alice", "Fatou"],
+                "city": ["Paris", "Nantes"],
+            }
+        ),
         tmp_path,
         "target",
     )
@@ -561,20 +545,24 @@ def test_keyed_comparison_reports_record_changes(tmp_path: Path) -> None:
 
 def test_keyed_comparison_counts_modified_rows_and_cells(tmp_path: Path) -> None:
     source = prepare_dataset(
-        pa.record_batch({
-            "id": ["001", "002", "003"],
-            "name": ["Alice", "Bob", "Fatou"],
-            "city": ["Rennes", "Vannes", "Nantes"],
-        }),
+        pa.record_batch(
+            {
+                "id": ["001", "002", "003"],
+                "name": ["Alice", "Bob", "Fatou"],
+                "city": ["Rennes", "Vannes", "Nantes"],
+            }
+        ),
         tmp_path,
         "source",
     )
     target = prepare_dataset(
-        pa.record_batch({
-            "id": ["001", "002", "003"],
-            "name": ["Alicia", "Bob", "Fatou"],
-            "city": ["Paris", "Lyon", "Nantes"],
-        }),
+        pa.record_batch(
+            {
+                "id": ["001", "002", "003"],
+                "name": ["Alicia", "Bob", "Fatou"],
+                "city": ["Paris", "Lyon", "Nantes"],
+            }
+        ),
         tmp_path,
         "target",
     )
@@ -610,18 +598,22 @@ def test_keyed_comparison_ignores_row_and_column_order(tmp_path: Path) -> None:
 
 def test_keyed_comparison_handles_null_values(tmp_path: Path) -> None:
     source = prepare_dataset(
-        pa.record_batch({
-            "id": ["001", "002", "003"],
-            "value": pa.array([None, None, ""], type=pa.string()),
-        }),
+        pa.record_batch(
+            {
+                "id": ["001", "002", "003"],
+                "value": pa.array([None, None, ""], type=pa.string()),
+            }
+        ),
         tmp_path,
         "source",
     )
     target = prepare_dataset(
-        pa.record_batch({
-            "id": ["001", "002", "003"],
-            "value": pa.array([None, "", None], type=pa.string()),
-        }),
+        pa.record_batch(
+            {
+                "id": ["001", "002", "003"],
+                "value": pa.array([None, "", None], type=pa.string()),
+            }
+        ),
         tmp_path,
         "target",
     )
@@ -634,16 +626,12 @@ def test_keyed_comparison_handles_null_values(tmp_path: Path) -> None:
 
 def test_keyed_comparison_reports_partial_schema_match(tmp_path: Path) -> None:
     source = prepare_dataset(
-        pa.record_batch({
-            "id": ["001"], "name": ["Alice"], "city": ["Rennes"]
-        }),
+        pa.record_batch({"id": ["001"], "name": ["Alice"], "city": ["Rennes"]}),
         tmp_path,
         "source",
     )
     target = prepare_dataset(
-        pa.record_batch({
-            "id": ["001"], "name": ["Alicia"], "status": ["active"]
-        }),
+        pa.record_batch({"id": ["001"], "name": ["Alicia"], "status": ["active"]}),
         tmp_path,
         "target",
     )
@@ -687,29 +675,19 @@ def test_keyed_comparison_rejects_implicit_type_conversion(
 
 
 @pytest.mark.parametrize("invalid_side", ["source", "target"])
-def test_keyed_comparison_validates_both_datasets(
-    tmp_path: Path, invalid_side: str
-) -> None:
+def test_keyed_comparison_validates_both_datasets(tmp_path: Path, invalid_side: str) -> None:
     valid = pa.record_batch({"id": ["001"]})
     invalid = pa.record_batch({"id": ["001", "001"]})
-    source = prepare_dataset(
-        invalid if invalid_side == "source" else valid, tmp_path, "source"
-    )
-    target = prepare_dataset(
-        invalid if invalid_side == "target" else valid, tmp_path, "target"
-    )
+    source = prepare_dataset(invalid if invalid_side == "source" else valid, tmp_path, "source")
+    target = prepare_dataset(invalid if invalid_side == "target" else valid, tmp_path, "target")
 
     with pytest.raises(ComparisonError, match="duplicate identifiers"):
         DuckDBComparator().compare_with_key(source, target, "id")
 
 
 def test_keyed_comparison_handles_key_only_datasets(tmp_path: Path) -> None:
-    source = prepare_dataset(
-        pa.record_batch({"id": ["001", "002"]}), tmp_path, "source"
-    )
-    target = prepare_dataset(
-        pa.record_batch({"id": ["002", "001"]}), tmp_path, "target"
-    )
+    source = prepare_dataset(pa.record_batch({"id": ["001", "002"]}), tmp_path, "source")
+    target = prepare_dataset(pa.record_batch({"id": ["002", "001"]}), tmp_path, "target")
 
     result = DuckDBComparator().compare_with_key(source, target, "id")
 
@@ -721,9 +699,7 @@ def test_keyed_comparison_handles_key_only_datasets(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("empty_side", ["source", "target", "both"])
-def test_keyed_comparison_handles_empty_datasets(
-    tmp_path: Path, empty_side: str
-) -> None:
+def test_keyed_comparison_handles_empty_datasets(tmp_path: Path, empty_side: str) -> None:
     empty = pa.record_batch({"id": pa.array([], type=pa.string())})
     populated = pa.record_batch({"id": ["001"]})
     source = prepare_dataset(
@@ -789,12 +765,8 @@ def test_keyed_export_contains_only_missing_and_added_identifiers(
     assert result.modified_rows == 1
     assert result.missing_rows_file is not None
     assert result.added_rows_file is not None
-    assert pq.read_table(result.missing_rows_file).to_pylist() == [
-        {"id": "002", "city": "Vannes"}
-    ]
-    assert pq.read_table(result.added_rows_file).to_pylist() == [
-        {"id": "003", "city": "Nantes"}
-    ]
+    assert pq.read_table(result.missing_rows_file).to_pylist() == [{"id": "002", "city": "Vannes"}]
+    assert pq.read_table(result.added_rows_file).to_pylist() == [{"id": "003", "city": "Nantes"}]
     assert result.missing_rows_file.parent == result.added_rows_file.parent
 
 
@@ -814,9 +786,7 @@ def test_keyed_export_writes_empty_files_with_columns(tmp_path: Path) -> None:
         table = pq.read_table(path)
         assert table.num_rows == 0
         assert table.schema.names == batch.schema.names
-        assert [field.type for field in table.schema] == [
-            field.type for field in batch.schema
-        ]
+        assert [field.type for field in table.schema] == [field.type for field in batch.schema]
 
 
 def test_keyed_export_preserves_each_side_columns(tmp_path: Path) -> None:
@@ -838,12 +808,8 @@ def test_keyed_export_preserves_each_side_columns(tmp_path: Path) -> None:
     assert result.status == "partial"
     assert result.missing_rows_file is not None
     assert result.added_rows_file is not None
-    assert pq.read_table(result.missing_rows_file).to_pylist() == [
-        {"id": "001", "city": "Rennes"}
-    ]
-    assert pq.read_table(result.added_rows_file).to_pylist() == [
-        {"id": "002", "status": "active"}
-    ]
+    assert pq.read_table(result.missing_rows_file).to_pylist() == [{"id": "001", "city": "Rennes"}]
+    assert pq.read_table(result.added_rows_file).to_pylist() == [{"id": "002", "status": "active"}]
 
 
 def test_keyed_comparison_without_export_does_not_create_files(
@@ -862,17 +828,11 @@ def test_keyed_comparison_without_export_does_not_create_files(
 
 
 def test_keyed_export_skips_incompatible_types(tmp_path: Path) -> None:
-    source = prepare_dataset(
-        pa.record_batch({"id": ["001"]}), tmp_path / "datasets", "source"
-    )
-    target = prepare_dataset(
-        pa.record_batch({"id": [1]}), tmp_path / "datasets", "target"
-    )
+    source = prepare_dataset(pa.record_batch({"id": ["001"]}), tmp_path / "datasets", "source")
+    target = prepare_dataset(pa.record_batch({"id": [1]}), tmp_path / "datasets", "target")
     output_dir = tmp_path / "differences"
 
-    result = DuckDBComparator().compare_with_key(
-        source, target, "id", output_dir=output_dir
-    )
+    result = DuckDBComparator().compare_with_key(source, target, "id", output_dir=output_dir)
 
     assert result.status == "not_compared"
     assert result.missing_rows_file is None
@@ -904,18 +864,22 @@ def test_keyed_export_cleans_partial_output_on_publication_failure(
 
 def test_modified_export_preserves_exact_values(tmp_path: Path) -> None:
     source = prepare_dataset(
-        pa.record_batch({
-            "id": ["001", "002", "003", "004"],
-            "city": pa.array(["Rennes", None, "", "Vannes"], type=pa.string()),
-        }),
+        pa.record_batch(
+            {
+                "id": ["001", "002", "003", "004"],
+                "city": pa.array(["Rennes", None, "", "Vannes"], type=pa.string()),
+            }
+        ),
         tmp_path / "datasets",
         "source",
     )
     target = prepare_dataset(
-        pa.record_batch({
-            "id": ["001", "002", "003", "005"],
-            "city": pa.array(["Paris", "", None, "Nantes"], type=pa.string()),
-        }),
+        pa.record_batch(
+            {
+                "id": ["001", "002", "003", "005"],
+                "city": pa.array(["Paris", "", None, "Nantes"], type=pa.string()),
+            }
+        ),
         tmp_path / "datasets",
         "target",
     )
@@ -991,9 +955,7 @@ def test_modified_export_handles_multiple_cells_and_special_names(
 
 
 @pytest.mark.parametrize("key_only", [True, False])
-def test_modified_export_preserves_schema_when_empty(
-    tmp_path: Path, key_only: bool
-) -> None:
+def test_modified_export_preserves_schema_when_empty(tmp_path: Path, key_only: bool) -> None:
     batch = (
         pa.record_batch({"id": ["001"]})
         if key_only
@@ -1010,13 +972,19 @@ def test_modified_export_preserves_schema_when_empty(
     table = pq.read_table(result.modified_cells_file)
     assert table.num_rows == 0
     assert table.column_names == [
-        "record_key", "column_name", "source_value", "target_value", "value_type"
+        "record_key",
+        "column_name",
+        "source_value",
+        "target_value",
+        "value_type",
     ]
     assert result.modified_cells == 0
     assert result.identical is True
 
 
-def test_modified_export_failure_removes_all_partial_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_modified_export_failure_removes_all_partial_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     source = prepare_dataset(
         pa.record_batch({"id": ["001"], "name": ["Alice"]}),
         tmp_path / "datasets",

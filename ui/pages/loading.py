@@ -39,18 +39,14 @@ def load_page() -> None:
     )
 
     if load_clicked and source_settings is not None and target_settings is not None:
-        source_upload, source_encoding, source_separator = source_settings
+        source_uploads, source_encoding, source_separator = source_settings
         target_uploads, target_encoding, target_separator = target_settings
 
-        if source_upload is None or not target_uploads:
+        if not source_uploads or not target_uploads:
             st.warning("Select one source and at least one target.")
         else:
-            directory = (
-                WORKSPACE_DIR
-                / "uploads"
-                / st.session_state["session_id"]
-                / uuid4().hex
-            )
+            source_upload = source_uploads[0]
+            directory = WORKSPACE_DIR / "uploads" / st.session_state["session_id"] / uuid4().hex
             try:
                 directory.mkdir(parents=True, exist_ok=False)
                 source = CsvInput(
@@ -104,11 +100,7 @@ def load_page() -> None:
             st.write(inputs["source_name"])
             settings = inputs["settings"]
             separator_name = next(
-                (
-                    name
-                    for name, value in SEPARATORS.items()
-                    if value == settings.delimiter
-                ),
+                (name for name, value in SEPARATORS.items() if value == settings.delimiter),
                 repr(settings.delimiter),
             )
             st.caption(f"{settings.encoding} · {separator_name}")
@@ -155,9 +147,7 @@ def load_page() -> None:
         key = st.selectbox(
             "Record identifier",
             [None, *inputs["columns"]],
-            format_func=lambda value: (
-                "No key — compare complete rows" if value is None else value
-            ),
+            format_func=lambda value: "No key — compare complete rows" if value is None else value,
             key=f"comparison_key_{directory_key(inputs)}",
         )
 

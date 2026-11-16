@@ -1,3 +1,5 @@
+from collections.abc import Callable
+from typing import TypedDict
 from uuid import uuid4
 
 import streamlit as st
@@ -7,7 +9,12 @@ from ui.pages.loading import load_page
 from ui.pages.results import results_page
 from ui.theme import apply_theme, render_brand
 
-PAGES = {
+
+class PageDefinition(TypedDict):
+    label: str
+    render: Callable[[], None]
+
+PAGES: dict[str, PageDefinition] = {
     "Load data": {"label": "📂  Load data", "render": load_page},
     "Explore data": {"label": "🔎  Explore data", "render": explore_page},
     "Results": {"label": "📊  Results", "render": results_page},

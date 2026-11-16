@@ -44,10 +44,12 @@ def test_preserves_values_and_metadata(tmp_path: Path) -> None:
 
 
 def test_preserves_empty_dataset_schema(tmp_path: Path) -> None:
-    batch = pa.record_batch({
-        "id": pa.array([], type=pa.string()),
-        "name": pa.array([], type=pa.string()),
-    })
+    batch = pa.record_batch(
+        {
+            "id": pa.array([], type=pa.string()),
+            "name": pa.array([], type=pa.string()),
+        }
+    )
 
     dataset = ParquetNormalizer().normalize([batch], tmp_path, "empty", ORIGIN)
     table = pq.read_table(dataset.parquet_files[0])
@@ -72,15 +74,11 @@ def test_rejects_missing_batches(tmp_path: Path) -> None:
     ],
     ids=["different-column", "different-type"],
 )
-def test_rejects_schema_changes(
-    tmp_path: Path, second_batch: pa.RecordBatch
-) -> None:
+def test_rejects_schema_changes(tmp_path: Path, second_batch: pa.RecordBatch) -> None:
     first_batch = pa.record_batch({"id": ["001"]})
 
     with pytest.raises(DatasetValidationError, match="same column names and types"):
-        ParquetNormalizer().normalize(
-            [first_batch, second_batch], tmp_path, "invalid", ORIGIN
-        )
+        ParquetNormalizer().normalize([first_batch, second_batch], tmp_path, "invalid", ORIGIN)
 
     assert list(tmp_path.iterdir()) == []
 
@@ -94,9 +92,7 @@ def test_removes_partial_output_after_reading_failure(tmp_path: Path) -> None:
         raise IngestionError("Malformed CSV record.")
 
     with pytest.raises(IngestionError, match="Malformed CSV"):
-        ParquetNormalizer().normalize(
-            failing_batches(), tmp_path, "broken", ORIGIN
-        )
+        ParquetNormalizer().normalize(failing_batches(), tmp_path, "broken", ORIGIN)
 
     assert list(tmp_path.iterdir()) == [existing]
     assert existing.read_text(encoding="utf-8") == "Keep this file."
@@ -104,12 +100,8 @@ def test_removes_partial_output_after_reading_failure(tmp_path: Path) -> None:
 
 def test_creates_independent_datasets(tmp_path: Path) -> None:
     normalizer = ParquetNormalizer()
-    first = normalizer.normalize(
-        [pa.record_batch({"id": ["001"]})], tmp_path, "customers", ORIGIN
-    )
-    second = normalizer.normalize(
-        [pa.record_batch({"id": ["002"]})], tmp_path, "customers", ORIGIN
-    )
+    first = normalizer.normalize([pa.record_batch({"id": ["001"]})], tmp_path, "customers", ORIGIN)
+    second = normalizer.normalize([pa.record_batch({"id": ["002"]})], tmp_path, "customers", ORIGIN)
 
     assert first.dataset_id != second.dataset_id
     assert pq.read_table(first.parquet_files[0]).to_pylist() == [{"id": "001"}]
@@ -118,9 +110,7 @@ def test_creates_independent_datasets(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("names", [["id", "id"], ["id", ""], ["id", "   "]])
 def test_rejects_invalid_column_names(tmp_path: Path, names: list[str]) -> None:
-    batch = pa.RecordBatch.from_arrays(
-        [pa.array(["001"]), pa.array(["Alice"])], names=names
-    )
+    batch = pa.RecordBatch.from_arrays([pa.array(["001"]), pa.array(["Alice"])], names=names)
 
     with pytest.raises(DatasetValidationError):
         ParquetNormalizer().normalize([batch], tmp_path, "invalid", ORIGIN)

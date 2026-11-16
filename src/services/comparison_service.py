@@ -68,7 +68,9 @@ class ComparisonService:
         if any(not name.strip() for name in targets):
             raise DatasetValidationError("Target names must not be empty.")
         if key is not None and not key.strip():
-            raise DatasetValidationError("Use None for an unkeyed comparison or provide a valid key name.")
+            raise DatasetValidationError(
+                "Use None for an unkeyed comparison or provide a valid key name."
+            )
 
         job_id = uuid4().hex
         workspace = self.jobs_dir / job_id
@@ -86,13 +88,13 @@ class ComparisonService:
             shutil.rmtree(workspace)
             raise
 
+        comparison: KeyedComparison | UnkeyedComparison
+
         outcomes = {}
         for name, request in targets.items():
             prepared_target = None
             try:
-                prepared_target = self._prepare(
-                    request, name, workspace / "normalized"
-                )
+                prepared_target = self._prepare(request, name, workspace / "normalized")
                 output_dir = workspace / "differences"
                 if key is None:
                     comparison = self.comparator.compare_without_key(

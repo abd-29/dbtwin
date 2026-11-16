@@ -1,14 +1,19 @@
 from dataclasses import replace
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from uuid import uuid4
 
 import duckdb
 
-from tempfile import TemporaryDirectory
-from pathlib import Path
-from uuid import uuid4
-
 from src.exceptions import ComparisonError
-from src.models import ColumnTypeDifference, Dataset, DatasetSummary, StructureComparison, UnkeyedComparison, \
-    KeyedComparison
+from src.models import (
+    ColumnTypeDifference,
+    Dataset,
+    DatasetSummary,
+    KeyedComparison,
+    StructureComparison,
+    UnkeyedComparison,
+)
 
 
 class DuckDBComparator:
@@ -46,7 +51,9 @@ class DuckDBComparator:
         )
 
     @staticmethod
-    def _inspect(connection: duckdb.DuckDBPyConnection, dataset: Dataset) -> tuple[DatasetSummary, dict[str, str]]:
+    def _inspect(
+        connection: duckdb.DuckDBPyConnection, dataset: Dataset
+    ) -> tuple[DatasetSummary, dict[str, str]]:
         """Read actual dimensions and check them against dataset metadata."""
         for path in dataset.parquet_files:
             if not path.is_file():
@@ -78,7 +85,6 @@ class DuckDBComparator:
             column_count=len(column_types),
         )
         return summary, column_types
-
 
     def compare_without_key(
         self,
@@ -136,8 +142,7 @@ class DuckDBComparator:
 
                 if matched_rows != structure.target.row_count - added_rows:
                     raise ComparisonError(
-                        "Comparison counts are inconsistent. "
-                        "Check whether datasets changed."
+                        "Comparison counts are inconsistent. Check whether datasets changed."
                     )
 
                 if output_dir is not None:
@@ -145,7 +150,9 @@ class DuckDBComparator:
                         connection, output_dir
                     )
         except (duckdb.Error, OSError) as error:
-            raise ComparisonError("Unable to compare or write differences without a key.") from error
+            raise ComparisonError(
+                "Unable to compare or write differences without a key."
+            ) from error
 
         return UnkeyedComparison(
             structure=structure,
@@ -162,9 +169,10 @@ class DuckDBComparator:
         """Escape a column name for use as a SQL identifier."""
         return '"' + name.replace('"', '""') + '"'
 
-
     @staticmethod
-    def _write_unkeyed_differences(connection: duckdb.DuckDBPyConnection, output_dir: Path) -> tuple[Path, Path]:
+    def _write_unkeyed_differences(
+        connection: duckdb.DuckDBPyConnection, output_dir: Path
+    ) -> tuple[Path, Path]:
         """Publish both difference files only after successful writing."""
         output_dir = output_dir.resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -183,7 +191,6 @@ class DuckDBComparator:
             staging_dir.rename(final_dir)
 
         return final_dir / "missing.parquet", final_dir / "added.parquet"
-
 
     def validate_key(self, dataset: Dataset, key: str) -> None:
         """Validate a record identifier without loading records into Python."""
@@ -221,7 +228,9 @@ class DuckDBComparator:
                         ) AS duplicate_rows
                 """).fetchall()
         except duckdb.Error as error:
-            raise ComparisonError(f"Unable to validate the key for dataset '{dataset.name}'.") from error
+            raise ComparisonError(
+                f"Unable to validate the key for dataset '{dataset.name}'."
+            ) from error
 
         empty_keys = int(counts[0][0])
         duplicate_rows = int(counts[0][1])
@@ -232,19 +241,17 @@ class DuckDBComparator:
             problems.append(f"{duplicate_rows} row(s) with duplicate identifiers")
         if problems:
             raise ComparisonError(
-                f"Invalid key '{key}' in dataset '{dataset.name}': "
-                + "; ".join(problems)
-                + "."
+                f"Invalid key '{key}' in dataset '{dataset.name}': " + "; ".join(problems) + "."
             )
 
-    def compare_with_key(self, source: Dataset, target: Dataset, key: str, output_dir: Path | None = None) -> KeyedComparison:
+    def compare_with_key(
+        self, source: Dataset, target: Dataset, key: str, output_dir: Path | None = None
+    ) -> KeyedComparison:
         """Compare records using a validated unique identifier."""
         self.validate_key(source, key)
         self.validate_key(target, key)
         structure = self.compare_structure(source, target)
-        columns = tuple(
-            name for name in structure.common_columns if name != key
-        )
+        columns = tuple(name for name in structure.common_columns if name != key)
 
         if structure.type_differences:
             return KeyedComparison(
@@ -257,15 +264,13 @@ class DuckDBComparator:
 
         identifier = self._quote_identifier(key)
         differences = [
-            f"s.{self._quote_identifier(name)} "
-            f"IS DISTINCT FROM t.{self._quote_identifier(name)}"
+            f"s.{self._quote_identifier(name)} IS DISTINCT FROM t.{self._quote_identifier(name)}"
             for name in columns
         ]
         row_changed = " OR ".join(f"({expression})" for expression in differences)
         row_changed = row_changed or "FALSE"
         cell_count = " + ".join(
-            f"CASE WHEN {expression} THEN 1 ELSE 0 END"
-            for expression in differences
+            f"CASE WHEN {expression} THEN 1 ELSE 0 END" for expression in differences
         )
         cell_count = cell_count or "0"
 
@@ -295,9 +300,7 @@ class DuckDBComparator:
                         ON s.{identifier} = t.{identifier}
                 """).fetchall()
         except duckdb.Error as error:
-            raise ComparisonError(
-                f"Unable to compare records using key '{key}'."
-            ) from error
+            raise ComparisonError(f"Unable to compare records using key '{key}'.") from error
 
         matched_rows = int(counts[0][0])
         modified_rows = int(counts[0][1])
@@ -316,12 +319,15 @@ class DuckDBComparator:
             added_rows=added_rows,
             modified_rows=modified_rows,
             modified_cells=modified_cells,
-            reason=("Only shared non-key columns were compared; schemas differ." if partial else None),
-
+            reason=(
+                "Only shared non-key columns were compared; schemas differ." if partial else None
+            ),
         )
 
         if output_dir is not None:
-            missing_file, added_file, modified_file = self._write_keyed_differences(source, target, result, output_dir)
+            missing_file, added_file, modified_file = self._write_keyed_differences(
+                source, target, result, output_dir
+            )
             result = replace(
                 result,
                 missing_rows_file=missing_file,
@@ -330,8 +336,9 @@ class DuckDBComparator:
             )
         return result
 
-
-    def _write_keyed_differences(self, source: Dataset, target: Dataset, result: KeyedComparison, output_dir: Path) -> tuple[Path, Path, Path]:
+    def _write_keyed_differences(
+        self, source: Dataset, target: Dataset, result: KeyedComparison, output_dir: Path
+    ) -> tuple[Path, Path, Path]:
         """Write records whose identifiers exist on only one side."""
         identifier = self._quote_identifier(result.key)
         output_dir = output_dir.resolve()
@@ -374,19 +381,42 @@ class DuckDBComparator:
                         compression="zstd",
                     )
 
-                    connection.sql(self._modified_cells_query(result)).to_parquet(str(staging_dir / "modified.parquet"), compression="zstd")
+                    connection.sql(self._modified_cells_query(result)).to_parquet(
+                        str(staging_dir / "modified.parquet"), compression="zstd"
+                    )
 
-                    missing_count = connection.read_parquet(str(staging_dir / "missing.parquet"), hive_partitioning=False).aggregate("count(*)").fetchall()[0][0]
-                    added_count = connection.read_parquet(str(staging_dir / "added.parquet"), hive_partitioning=False,).aggregate("count(*)").fetchall()[0][0]
-                    modified_counts = connection.read_parquet(str(staging_dir / "modified.parquet"), hive_partitioning=False).aggregate("count(*), count(DISTINCT record_key)").fetchall()[0]
+                    missing_count = (
+                        connection.read_parquet(
+                            str(staging_dir / "missing.parquet"), hive_partitioning=False
+                        )
+                        .aggregate("count(*)")
+                        .fetchall()[0][0]
+                    )
+                    added_count = (
+                        connection.read_parquet(
+                            str(staging_dir / "added.parquet"),
+                            hive_partitioning=False,
+                        )
+                        .aggregate("count(*)")
+                        .fetchall()[0][0]
+                    )
+                    modified_counts = (
+                        connection.read_parquet(
+                            str(staging_dir / "modified.parquet"), hive_partitioning=False
+                        )
+                        .aggregate("count(*), count(DISTINCT record_key)")
+                        .fetchall()[0]
+                    )
 
                     if (
-                            missing_count != result.missing_rows
-                            or added_count != result.added_rows
-                            or modified_counts[0] != result.modified_cells
-                            or modified_counts[1] != result.modified_rows
+                        missing_count != result.missing_rows
+                        or added_count != result.added_rows
+                        or modified_counts[0] != result.modified_cells
+                        or modified_counts[1] != result.modified_rows
                     ):
-                        raise ComparisonError("Exported record counts do not match comparison results.")
+                        raise ComparisonError(
+                            "Exported record counts do not match comparison results."
+                        )
 
                 staging_dir.rename(final_dir)
         except (duckdb.Error, OSError) as error:
@@ -397,7 +427,6 @@ class DuckDBComparator:
             final_dir / "added.parquet",
             final_dir / "modified.parquet",
         )
-
 
     def _modified_cells_query(self, result: KeyedComparison) -> str:
         """Build a query returning one record per modified cell."""
@@ -444,6 +473,3 @@ class DuckDBComparator:
             )
             WHERE changes.is_modified
         """
-
-
-

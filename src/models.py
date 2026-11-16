@@ -64,6 +64,7 @@ class Dataset:
         """Return the number of columns."""
         return len(self.columns)
 
+
 @dataclass(frozen=True)
 class DatasetSummary:
     """Describe the dimensions of a dataset."""
@@ -105,6 +106,7 @@ class StructureComparison:
             self.source.row_count == self.target.row_count
             and self.source.column_count == self.target.column_count
         )
+
 
 @dataclass(frozen=True)
 class UnkeyedComparison:
