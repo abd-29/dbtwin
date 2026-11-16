@@ -17,7 +17,7 @@ from ui.components import (
 
 
 def load_page() -> None:
-    """Load CSV inputs, configure comparison and open its results."""
+    """Load files, configure comparison and open its results."""
     st.title("Load data")
     source_column, target_column = st.columns(2, gap="large")
 
@@ -39,8 +39,20 @@ def load_page() -> None:
     )
 
     if load_clicked and source_settings is not None and target_settings is not None:
-        source_uploads, source_encoding, source_separator, source_format = source_settings
-        target_uploads, target_encoding, target_separator, target_format = target_settings
+        (
+            source_uploads,
+            source_encoding,
+            source_separator,
+            source_format,
+            source_sheets,
+        ) = source_settings
+        (
+            target_uploads,
+            target_encoding,
+            target_separator,
+            target_format,
+            target_sheets,
+        ) = target_settings
 
         if not source_uploads or not target_uploads:
             st.warning("Select one source and at least one target.")
@@ -54,6 +66,7 @@ def load_page() -> None:
                     encoding=source_encoding,
                     delimiter=source_separator,
                     file_format=source_format,
+                    sheet_name=source_sheets.get(source_upload.file_id),
                 )
                 preview, settings = file_preview(source)
                 source = FileInput(
@@ -61,9 +74,10 @@ def load_page() -> None:
                     encoding=settings.encoding,
                     delimiter=settings.delimiter,
                     file_format=settings.file_format,
+                    sheet_name=settings.sheet_name,
                 )
 
-                targets = {}
+                targets: dict[str, FileInput] = {}
                 for index, upload in enumerate(target_uploads, start=1):
                     name = f"{index}. {upload.name}"
                     targets[name] = FileInput(
@@ -71,6 +85,7 @@ def load_page() -> None:
                         encoding=target_encoding,
                         delimiter=target_separator,
                         file_format=target_format,
+                        sheet_name=target_sheets.get(upload.file_id),
                     )
             except (DbtwinError, OSError) as error:
                 if directory.exists():
@@ -102,30 +117,38 @@ def load_page() -> None:
             st.markdown("**Loaded source**")
             st.write(inputs["source_name"])
             settings = inputs["settings"]
-            separator_name = next(
-                (name for name, value in SEPARATORS.items() if value == settings.delimiter),
-                repr(settings.delimiter),
-            )
-            st.caption(
-                f"{settings.encoding} · {separator_name}"
-                if settings.file_format == "csv"
-                else "Parquet"
-            )
+
+            if settings.file_format == "csv":
+                separator_name = next(
+                    (name for name, value in SEPARATORS.items() if value == settings.delimiter),
+                    repr(settings.delimiter),
+                )
+                st.caption(f"{settings.encoding} · {separator_name}")
+            elif settings.file_format == "excel":
+                st.caption(f"Excel · {settings.sheet_name}")
+            else:
+                st.caption("Parquet")
 
         with right:
             st.markdown("**Loaded targets**")
-            for name in inputs["targets"]:
+            for name, request in inputs["targets"].items():
                 st.write(name)
+                if request.file_format == "excel":
+                    st.caption(f"Worksheet: {request.sheet_name or 'First worksheet'}")
 
     st.caption("Changed your file selection? Click Load files to apply it.")
 
-    overrides = {}
+    overrides: dict[str, FileInput] = {}
     with st.expander("Target reading settings"):
         for index, (name, request) in enumerate(inputs["targets"].items()):
             st.markdown(f"**{name}**")
 
-            if request.file_format == "parquet":
-                st.caption("Parquet · No reading settings required.")
+            if request.file_format != "csv":
+                st.caption(
+                    f"Excel · {request.sheet_name or 'First worksheet'}"
+                    if request.file_format == "excel"
+                    else "Parquet"
+                )
                 overrides[name] = request
                 continue
 

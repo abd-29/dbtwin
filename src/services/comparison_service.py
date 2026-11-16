@@ -7,6 +7,7 @@ from uuid import uuid4
 from src.comparison.duckdb_comparator import DuckDBComparator
 from src.exceptions import DatasetValidationError, DbtwinError, IngestionError
 from src.ingestion.csv_reader import CsvReader
+from src.ingestion.excel_reader import ExcelReader
 from src.ingestion.parquet_reader import ParquetReader
 from src.models import Dataset, DatasetOrigin, KeyedComparison, UnkeyedComparison
 from src.transformation.normalizer import ParquetNormalizer
@@ -19,18 +20,20 @@ class FileInput:
     path: Path
     encoding: str | None = None
     delimiter: str | None = None
-    file_format: Literal["csv", "parquet"] = "csv"
+    file_format: Literal["csv", "parquet", "excel"] = "csv"
+    sheet_name: str | None = None
 
 
 @dataclass(frozen=True)
 class FileSettings:
     """Describe the effective settings used during ingestion."""
 
-    file_format: Literal["csv", "parquet"]
+    file_format: Literal["csv", "parquet", "excel"]
     encoding: str | None = None
     delimiter: str | None = None
     encoding_detected: bool = False
     delimiter_detected: bool = False
+    sheet_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -73,6 +76,7 @@ class ComparisonService:
         self.jobs_dir = jobs_dir.resolve()
         self.reader = CsvReader()
         self.parquet_reader = ParquetReader()
+        self.excel_reader = ExcelReader()
         self.normalizer = ParquetNormalizer()
         self.comparator = DuckDBComparator()
 
@@ -145,6 +149,12 @@ class ComparisonService:
 
     def _prepare(self, request: FileInput, name: str, output_dir: Path) -> PreparedFile:
         """Select a reader and prepare the shared internal representation."""
+        if request.file_format != "csv":
+            if request.encoding is not None or request.delimiter is not None:
+                raise IngestionError("Encoding and delimiter settings apply only to CSV files.")
+        if request.file_format != "excel" and request.sheet_name is not None:
+            raise IngestionError("Worksheet selection applies only to Excel files.")
+
         if request.file_format == "csv":
             csv_settings = self.reader.inspect(
                 request.path,
@@ -161,10 +171,26 @@ class ComparisonService:
             batches = self.reader.read_batches(request.path, csv_settings)
 
         elif request.file_format == "parquet":
-            if request.encoding is not None or request.delimiter is not None:
-                raise IngestionError("Encoding and delimiter settings apply only to CSV files.")
             settings = FileSettings(file_format="parquet")
             batches = self.parquet_reader.read_batches(request.path)
+
+        elif request.file_format == "excel":
+            sheets = self.excel_reader.list_sheets(request.path)
+            if not sheets:
+                raise IngestionError("The workbook contains no worksheets.")
+
+            selected_sheet = sheets[0] if request.sheet_name is None else request.sheet_name
+            if selected_sheet not in sheets:
+                raise IngestionError(f"Worksheet '{selected_sheet}' does not exist.")
+
+            settings = FileSettings(
+                file_format="excel",
+                sheet_name=selected_sheet,
+            )
+            batches = self.excel_reader.read_batches(
+                request.path,
+                sheet_name=selected_sheet,
+            )
 
         else:
             raise IngestionError(f"Unsupported file format: '{request.file_format}'.")
@@ -177,6 +203,7 @@ class ComparisonService:
                 ingestion_mode="file",
                 location=str(request.path.resolve()),
                 file_format=request.file_format,
+                sheet_name=settings.sheet_name,
             ),
         )
         return PreparedFile(dataset=dataset, settings=settings)

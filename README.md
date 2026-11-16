@@ -1,95 +1,223 @@
 # dbtwin
 
-Compare a reference dataset against multiple targets.
+**Compare datasets across files. Identify missing records, added records, and changed values.**
 
-The first release supports CSV files, with or without a unique record identifier.
+dbtwin compares a reference dataset against one or more targets through a Streamlit interface. It supports CSV, Parquet, and Excel files, with or without a unique record identifier.
+
+The comparison engine runs independently of the interface and uses DuckDB over an internal Parquet representation.
 
 ## Features
 
-- Upload one source and multiple targets.
-- Detect common CSV delimiters and Unicode encodings.
-- Override encoding and delimiter settings.
-- Preserve leading zeros, spaces, empty strings and literal values.
-- Compare column names, stored types and dataset dimensions.
-- Compare records using an optional unique key.
-- Compare complete rows without a key, including duplicate occurrences.
-- Export missing records, added records and modified cells.
-- Keep target failures independent.
-- Browse results through a Streamlit interface.
+- **Multiple targets** — compare each target independently against one reference.
+- **Multiple formats** — load CSV, Parquet, and Excel files.
+- **CSV inspection** — detect common delimiters and Unicode encodings, with manual overrides.
+- **Excel worksheets** — select a worksheet independently for each workbook.
+- **Key-based comparison** — identify missing records, added records, and modified cells.
+- **Comparison without a key** — compare complete rows while accounting for duplicate occurrences.
+- **Schema inspection** — report missing columns, additional columns, and stored type differences.
+- **Result exports** — download differences as CSV or Parquet.
+- **Isolated failures** — an invalid target does not prevent other targets from being compared.
 
-## Installation
+## Quick start
 
-Python 3.12 is used in CI.
+### Requirements
 
-Install Poetry, then run from the repository root:
+- Python 3.12, used in CI
+- Poetry 2.x
+
+### Install and run
+
+From the repository root:
 
 ```bash
 poetry install --with dev
 poetry run streamlit run app.py
 ```
 
-## Usage
+### Compare datasets
 
 1. Open **Load data**.
-2. Upload a source CSV and one or more targets.
-3. Adjust reading settings if needed, then click **Load files**.
-4. Select a record identifier or keep **No key**.
-5. Click **Compare**.
-6. Browse results and download differences.
+2. Select the source and target file formats.
+3. Upload one reference file and one or more targets.
+4. For Excel files, select the worksheets to compare.
+5. Click **Load files** and inspect the data in **Explore data**.
+6. Select a record identifier, or choose **No key**.
+7. Click **Compare**.
+8. Review the results and download the differences.
 
-**Explore data** displays up to 100 rows from a selected dataset.
+Source and target formats can differ. All targets in a single upload selection use the selected target format.
 
-## Comparison rules
+## Supported inputs
 
-### With a key
+| Format | Reading options | Value handling |
+|---|---|---|
+| CSV | Encoding and delimiter | Text values |
+| Parquet | No CSV-specific settings | Stored types preserved |
+| Excel `.xlsx` | Worksheet selection | Text representation of cell values |
 
-The selected column must exist, contain no empty identifiers and be unique
-in both datasets.
+### CSV
 
-Records are matched by identifier. Shared non-key columns are compared
-using exact values.
+Automatic inspection supports common delimiters:
 
-- Missing identifiers produce missing records.
-- New identifiers produce added records.
-- Changed values produce modified cells.
-- Different column sets produce a partial comparison.
-- Type differences in shared columns prevent value comparison.
+- Comma
+- Semicolon
+- Tab
+- Pipe
 
-### Without a key
+The reader recognizes UTF-8 and Unicode byte-order marks. Other encodings can be selected manually.
+
+Detection uses a sample and may require correction. The first record is treated as the header. Malformed records are rejected rather than silently skipped.
+
+### Parquet
+
+Parquet inputs preserve their stored types, including integers, booleans, dates, decimals, and null values.
+
+### Excel
+
+The first row of the selected worksheet is treated as the header. If no worksheet is specified through the Python service, the first worksheet is used.
+
+- Cell values are converted to text.
+- Dates and times use ISO representations.
+- Blank cells remain null.
+- Formulas and Excel error cells are rejected.
+- Display formatting is not applied.
+
+For example, a numeric cell containing `123` and formatted to display `00123` is read as `123`. An identifier stored as the text `00123` is preserved.
+
+## Comparison semantics
+
+### With a record identifier
+
+The selected key must:
+
+- Exist in both datasets.
+- Contain no null, empty, or whitespace-only identifiers.
+- Be unique within each dataset.
+
+Records are matched by key. Shared non-key columns are compared using exact values.
+
+| Result | Meaning |
+|---|---|
+| Matched rows | Identifiers present in both datasets |
+| Missing rows | Identifiers present only in the source |
+| Added rows | Identifiers present only in the target |
+| Modified rows | Matched records with at least one changed cell |
+| Modified cells | Individual value differences within matched records |
+
+Different column sets produce a **partial comparison**. Only shared non-key columns are compared.
+
+Type differences in shared columns prevent value comparison. dbtwin does not silently convert incompatible types.
+
+### Without a record identifier
 
 Complete rows and their occurrence counts are compared.
 
-If a row occurs three times in the source and once in the target,
-two occurrences are reported as missing.
+If a row occurs three times in the source and once in the target, two occurrences are reported as missing.
 
-Matching column names and types are required.
-Modified cells cannot be inferred without a record identifier.
+This mode requires matching column names and types. It cannot determine whether an individual cell was modified: a changed row is reported as a missing row and an added row.
 
-### Values
+### Equality rules
 
-Row and column order do not affect equality.
+- Row order does not matter.
+- Column order does not matter.
+- Column names must match exactly.
+- Spaces and letter case are significant.
+- Two null values are equivalent.
+- An empty string is distinct from a null value.
+- No automatic trimming, case conversion, or numeric tolerance is applied.
 
-CSV values are ingested as text. Spaces and letter case matter.
-Empty strings remain distinct from null values.
+A complete comparison with no structural or value differences is reported as **Identical**. Matching dimensions alone do not establish equality.
 
-In modified-cell exports, values are represented as text alongside their type.
-CSV exports use `\N` to represent null values; Parquet preserves nulls directly.
-A literal `\N` can therefore be ambiguous in the CSV export.
+### Cross-format comparisons
+
+Values must have compatible stored types.
+
+CSV and Excel ingestion use textual representations, while Parquet preserves native types. A textual `"25"` and a Parquet integer `25` are therefore reported as a type difference.
+
+## Results and exports
+
+Results include source and target dimensions, comparison counters, schema differences, and downloadable detail files.
+
+| File | Content |
+|---|---|
+| `missing.parquet` | Records or occurrences missing from the target |
+| `added.parquet` | Records or occurrences added in the target |
+| `modified.parquet` | One row per modified cell in key-based comparisons |
+
+Modified-cell exports contain:
+
+```text
+record_key
+column_name
+source_value
+target_value
+value_type
+```
+
+Source and target values in this detail file are represented as text. Null values remain null, and the original prepared datasets retain their stored types.
+
+CSV downloads use `\N` as the null marker. A literal `\N` can therefore be ambiguous in a CSV export; use Parquet when that distinction matters.
+
+The interface displays up to 100 preview rows. Downloads contain the complete result.
 
 ## Architecture
 
-- `src/ingestion/`: source inspection and incremental reading.
-- `src/transformation/`: internal Parquet preparation.
-- `src/comparison/`: DuckDB comparison engine.
-- `src/services/`: multi-target orchestration.
-- `ui/`: Streamlit pages and components.
+```text
+src/
+├── ingestion/          # Format-specific readers
+├── transformation/     # Internal Parquet preparation
+├── comparison/         # DuckDB comparison engine
+├── services/           # Multi-target orchestration
+├── models.py           # Dataset and result contracts
+└── exceptions.py       # Application errors
 
-The comparison engine and service do not depend on Streamlit.
+ui/
+├── components.py       # Shared interface components
+├── theme.py            # Styling and branding
+└── pages/              # Loading, exploration, and results
 
-Runtime files are stored outside the repository by default.
-Set `DBTWIN_WORKSPACE` to select another working directory.
+tests/
+├── unit/
+└── integration/
 
-## Checks
+benchmarks/              # Standalone performance measurements
+```
+
+Readers produce Arrow batches. The normalizer writes the internal Parquet datasets. DuckDB performs comparisons and writes differences without collecting complete datasets into Python objects.
+
+Streamlit handles user interaction. The ingestion, normalization, comparison, and service layers do not depend on it.
+
+## Configuration and storage
+
+`config.py` defines paths, supported file formats, and available ingestion modes.
+
+Runtime files use a temporary workspace by default. Set `DBTWIN_WORKSPACE` to choose another location.
+
+PowerShell:
+
+```powershell
+$env:DBTWIN_WORKSPACE = "C:\dbtwin-workspace"
+```
+
+Bash:
+
+```bash
+export DBTWIN_WORKSPACE="/var/tmp/dbtwin"
+```
+
+Each comparison job receives an isolated directory. Failed preparation outputs are cleaned up. Automatic retention and deletion of completed jobs are not implemented.
+
+The application does not overwrite input files.
+
+## Development
+
+Install development dependencies:
+
+```bash
+poetry install --with dev
+```
+
+Run the checks:
 
 ```bash
 poetry run ruff format --check src ui tests app.py config.py
@@ -98,20 +226,26 @@ poetry run mypy src ui app.py config.py
 poetry run pytest -q
 ```
 
-CI runs these checks on Windows and Linux.
+Tests generate their own datasets and temporary files. They do not depend on the demonstration files in `data/`.
 
-PyArrow currently has a scoped missing-type-information exception in mypy.
-Its integration is covered by runtime tests.
+GitHub Actions runs formatting, lint, type checks, and tests on Windows and Linux with Python 3.12.
 
-## Benchmark
+PyArrow currently has a scoped missing-type-information exception in mypy. Its integration is verified through runtime tests.
 
-Local benchmark with one source, one target and four textual columns.
+## Performance
 
-The target contains 1% removed records, 1% added records and 1% modified records.
-Times include ingestion, Parquet preparation, comparison and difference writing.
-Input generation, browser upload and interface rendering are excluded.
+The following local benchmark compares one source and one target, each containing four textual columns.
 
-Median duration across three runs:
+The target includes:
+
+- 1% removed records
+- 1% added records
+- 1% modified records
+- Reversed row order
+
+Durations include ingestion, Parquet preparation, comparison, and difference writing. Input generation, browser upload, interface rendering, and downloads are excluded.
+
+### Median duration across three runs
 
 | Rows per file | With key | Without key |
 |---:|---:|---:|
@@ -119,7 +253,7 @@ Median duration across three runs:
 | 100,000 | 0.515 s | 0.491 s |
 | 1,000,000 | 2.179 s | 2.451 s |
 
-Highest sampled process RSS across those runs:
+### Highest sampled process RSS across those runs
 
 | Rows per file | With key | Without key |
 |---:|---:|---:|
@@ -127,28 +261,46 @@ Highest sampled process RSS across those runs:
 | 100,000 | 146 MiB | 200 MiB |
 | 1,000,000 | 600 MiB | 734 MiB |
 
-Memory is sampled every 50 ms and includes native library allocations.
-Short-lived peaks may be missed.
+Memory is sampled every 50 ms and includes native library allocations. Short-lived peaks may be missed.
 
-These results describe one machine and one scenario, not guaranteed limits.
-The raw report in `reports/` includes environment information.
+These results describe one CSV scenario on one machine. They are not guaranteed limits and do not establish Excel or Parquet input performance. Environment details are recorded in the raw report under `reports/`.
 
-Reproduce:
+Reproduce the benchmark:
 
 ```bash
-poetry run python -m benchmarks.benchmark_csv --sizes 10000 100000 1000000 --repeats 3
+poetry run python -m benchmarks.benchmark_csv \
+    --sizes 10000 100000 1000000 \
+    --repeats 3
 ```
 
 ## Current limitations
 
-- CSV files only; database connections, Excel and Parquet inputs are planned.
-- The first CSV record is treated as the header.
-- Encoding and delimiter detection may require manual correction.
-- CSV type inference, column mapping and comparison tolerances are not implemented.
-- No composite keys.
-- Malformed records are rejected rather than silently skipped.
-- Data previews are bounded, but Streamlit uploads and downloads use memory.
-- Workspace retention and automatic cleanup of completed jobs are not implemented.
+- Database connections are not implemented.
+- Composite keys and column-name mapping are not implemented.
+- CSV and Excel values are not automatically converted to inferred business types.
+- Text normalization and numeric tolerances are not implemented.
+- Excel formulas are not evaluated.
+- Streamlit uploads and downloads use server memory.
+- Completed workspaces require an external cleanup policy.
+- A standalone API and production authentication are not provided.
+
+## Roadmap
+
+- Explicit type inference and conversion rules
+- Column mapping and composite keys
+- Configurable comparison rules
+- Database connectors, starting with PostgreSQL
+- Workspace retention controls
+- Reusable comparison configurations
+- Deployment through an interface-independent API
+
+## Contributing
+
+For bug reports, include the input formats, reading settings, comparison mode, expected behavior, and a minimal reproducible example.
+
+Use synthetic or anonymized data. Do not include credentials or confidential datasets.
+
+Changes should include relevant tests and pass the development checks.
 
 ## License
 

@@ -11,8 +11,9 @@ import streamlit as st
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 from config import FILETYPE, INGESTION_MODES
-from src.exceptions import IngestionError
+from src.exceptions import DbtwinError, IngestionError
 from src.ingestion.csv_reader import CsvReader
+from src.ingestion.excel_reader import ExcelReader
 from src.ingestion.parquet_reader import ParquetReader
 from src.services.comparison_service import FileInput, FileSettings
 
@@ -52,11 +53,12 @@ def ingestion_controls(
         list[UploadedFile],
         str | None,
         str | None,
-        Literal["csv", "parquet"],
+        Literal["csv", "parquet", "excel"],
+        dict[str, str],
     ]
     | None
 ):
-    """Collect file uploads and format-specific reading options."""
+    """Collect uploads, reading settings and per-file worksheet selections."""
     mode = st.selectbox(
         "Connection",
         options=list(INGESTION_MODES),
@@ -85,11 +87,18 @@ def ingestion_controls(
     if not FILETYPE[filetype]["enabled"]:
         st.info(f"{FILETYPE[filetype]['label']} is not available yet.")
         return None
-    if mode != "file" or filetype not in ("csv", "parquet"):
+    if mode != "file" or filetype not in ("csv", "parquet", "excel"):
         st.error("No reader is configured for this selection.")
         return None
 
-    file_format: Literal["csv", "parquet"] = "csv" if filetype == "csv" else "parquet"
+    file_format: Literal["csv", "parquet", "excel"]
+    if filetype == "csv":
+        file_format = "csv"
+    elif filetype == "parquet":
+        file_format = "parquet"
+    else:
+        file_format = "excel"
+
     uploads = st.file_uploader(
         "Target files" if multiple else "Source file",
         type=FILETYPE[filetype]["extensions"],
@@ -107,14 +116,46 @@ def ingestion_controls(
         files = uploads
 
     encoding, delimiter = reading_options(prefix) if file_format == "csv" else (None, None)
-    return files, encoding, delimiter, file_format
+    selected_sheets: dict[str, str] = {}
+
+    if file_format == "excel":
+        reader = ExcelReader()
+        for upload in files:
+            try:
+                upload.seek(0)
+                sheets = reader.list_sheets(upload)
+                if not sheets:
+                    raise IngestionError("The workbook contains no worksheets.")
+            except DbtwinError as error:
+                st.error(f"{upload.name}: {error}")
+                if not multiple:
+                    return None
+                # Keep invalid targets so the service can report their errors.
+                continue
+            finally:
+                upload.seek(0)
+
+            selected = st.selectbox(
+                f"Worksheet · {upload.name}",
+                options=list(sheets),
+                key=f"{prefix}_sheet_{upload.file_id}",
+            )
+            if selected is not None:
+                selected_sheets[upload.file_id] = selected
+
+        st.caption("Formulas must be replaced with values before comparison.")
+
+    return files, encoding, delimiter, file_format, selected_sheets
 
 
 def save_upload(
-    upload: UploadedFile, directory: Path, file_format: Literal["csv", "parquet"] = "csv"
+    upload: UploadedFile,
+    directory: Path,
+    file_format: Literal["csv", "parquet", "excel"] = "csv",
 ) -> Path:
-    """Save an upload using its selected format."""
-    path = directory / f"{uuid4().hex}.{file_format}"
+    """Save an upload with the extension matching its format."""
+    extension = {"csv": ".csv", "parquet": ".parquet", "excel": ".xlsx"}[file_format]
+    path = directory / f"{uuid4().hex}{extension}"
     upload.seek(0)
     with path.open("wb") as destination:
         copyfileobj(upload, destination)
@@ -122,7 +163,11 @@ def save_upload(
 
 
 def file_preview(request: FileInput) -> tuple[pa.RecordBatch, FileSettings]:
-    """Preview CSV or Parquet without loading the complete dataset."""
+    """Preview a supported file using the selected reading settings."""
+    if request.file_format != "csv":
+        if request.encoding is not None or request.delimiter is not None:
+            raise IngestionError("Encoding and delimiter settings apply only to CSV files.")
+
     if request.file_format == "csv":
         reader = CsvReader()
         detected = reader.inspect(
@@ -138,11 +183,23 @@ def file_preview(request: FileInput) -> tuple[pa.RecordBatch, FileSettings]:
             delimiter_detected=detected.delimiter_detected,
         )
         batches = reader.read_batches(request.path, detected)
+
     elif request.file_format == "parquet":
-        if request.encoding is not None or request.delimiter is not None:
-            raise IngestionError("Encoding and delimiter settings apply only to CSV files.")
         settings = FileSettings(file_format="parquet")
         batches = ParquetReader().read_batches(request.path)
+
+    elif request.file_format == "excel":
+        excel_reader = ExcelReader()
+        sheets = excel_reader.list_sheets(request.path)
+        if not sheets:
+            raise IngestionError("The workbook contains no worksheets.")
+        selected_sheet = sheets[0] if request.sheet_name is None else request.sheet_name
+        settings = FileSettings(
+            file_format="excel",
+            sheet_name=selected_sheet,
+        )
+        batches = excel_reader.read_batches(request.path, sheet_name=selected_sheet)
+
     else:
         raise IngestionError(f"Unsupported file format: '{request.file_format}'.")
 

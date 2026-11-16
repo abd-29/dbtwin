@@ -53,7 +53,7 @@ def results_page() -> None:
     elif result.identical:
         st.success("Identical.")
     else:
-        st.warning("Differences found.")
+        st.error("Differences found.", icon="⚠️")
 
     if result.status != "not_compared":
         metrics = st.columns(3)

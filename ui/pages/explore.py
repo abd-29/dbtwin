@@ -76,5 +76,9 @@ def explore_page() -> None:
                 }.get(settings.delimiter or "", repr(settings.delimiter))
                 st.write("Separator:", separator)
 
+            elif settings.file_format == "excel":
+                st.write("Worksheet:", settings.sheet_name)
+                st.write("Value representation:", "Text")
+
     except (DbtwinError, duckdb.Error, OSError) as error:
         st.error(str(error))

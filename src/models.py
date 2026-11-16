@@ -21,6 +21,7 @@ class DatasetOrigin:
     ingestion_mode: str
     location: str
     file_format: str | None = None
+    sheet_name: str | None = None
 
 
 @dataclass(frozen=True)
